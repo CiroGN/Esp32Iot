@@ -1,0 +1,58 @@
+
+#include <WiFi.h>       // For Wi-Fi connectivity
+#include <TFT_eSPI.h> 
+#include <SPI.h>        // TFT_eSPI uses SPI
+
+// --- Your Wi-Fi Credentials ---
+const char* ssid = "Net do Gabs";         // REPLACE with your Wi-Fi network name
+const char* password = "ukdw8635"; // REPLACE with your Wi-Fi password
+
+// Create an instance of the TFT_eSPI library
+TFT_eSPI tft = TFT_eSPI();
+
+void setup() {
+  Serial.begin(115200);
+  Serial.println("Starting Wi-Fi Connection Test...");
+
+  // Initialize the T-Display screen
+  tft.init();
+  tft.setRotation(1); // Adjust rotation if your display is upside down or sideways
+  tft.fillScreen(TFT_BLACK); // Clear the screen
+  tft.setTextColor(TFT_WHITE, TFT_BLACK); // Set text color (white text on black background)
+  tft.setTextFont(2); // Choose a font (font 2 is a good readable size)
+
+  tft.drawString("Connecting to WiFi...", 5, 5); // Display initial message on screen
+
+  // --- Connect to Wi-Fi ---
+  WiFi.begin(ssid, password);
+
+  Serial.print("Connecting to Wi-Fi ");
+  int attempts = 0;
+  while (WiFi.status() != WL_CONNECTED && attempts < 30) { // Try for about 15 seconds (30 * 500ms)
+    delay(500);
+    Serial.print(".");
+    attempts++;
+  }
+
+  Serial.println(); // New line after dots
+
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.println("WiFi Connected!");
+    Serial.print("IP Address: ");
+    Serial.println(WiFi.localIP());
+
+    // Display success message and IP on the screen
+    tft.fillRect(0, 5, tft.width(), 16, TFT_BLACK); // Clear "Connecting..."
+    tft.drawString("WiFi Connected!", 5, 5);
+    tft.drawString("IP: " + WiFi.localIP().toString(), 5, 25); // Display IP address
+  } else {
+    Serial.println("Failed to connect to Wi-Fi. Please check credentials.");
+
+    // Display failure message on the screen
+    tft.fillRect(0, 5, tft.width(), 16, TFT_BLACK); // Clear "Connecting..."
+    tft.drawString("WiFi Failed!", 5, 5);
+    tft.drawString("Check credentials", 5, 25);
+  }
+}
+
+void loop() {}
