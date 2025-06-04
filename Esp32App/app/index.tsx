@@ -1,15 +1,23 @@
-import { Text, View } from "react-native";
+import { Text, View, StyleSheet } from "react-native";
 
 export default function Index() {
-  return (
-    <View
-      style={{
-        flex: 1,
+  const styles = StyleSheet.create({
+    a:{ flex: 1,
         justifyContent: "center",
         alignItems: "center",
-      }}
-    >
-      <Text>Edit app/index.tsx to edit this screen.</Text>
+        flexWrap:"wrap",
+        flexDirection:"row",
+      },
+    title:{fontSize:20}
+  })
+  return (
+    <View style={styles.a}>
+      <View>
+        <Text style={styles.title}>Conexão das Esp's-32</Text>
+      </View>
+      <View>
+
+      </View>
     </View>
   );
 }
