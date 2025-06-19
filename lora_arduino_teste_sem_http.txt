@@ -1,0 +1,97 @@
+#include <TFT_eSPI.h>
+#include <WiFi.h>
+#include <HTTPClient.h>
+
+// --- Wi-Fi (opcional) ---
+const char* ssid = "Alves & Bueno 5G";
+const char* password = "naotemsenha06";
+
+// --- Tela ---
+TFT_eSPI tft = TFT_eSPI();
+
+// --- Variáveis ---
+String tagLida = "TAG1234";
+String statusAcesso = "";
+
+void setup() {
+  Serial.begin(115200);
+
+  // --- Inicializa Tela ---
+  tft.init();
+  tft.setRotation(1);
+  tft.fillScreen(TFT_BLACK);
+  tft.setTextColor(TFT_WHITE, TFT_BLACK);
+  tft.setTextFont(2);
+
+  tft.drawString("Controle de Acesso", 5, 5);
+  tft.drawString("Iniciando WiFi...", 5, 25);
+
+  // --- (Opcional) Conecta Wi-Fi ---
+  WiFi.begin(ssid, password);
+  int tentativas = 0;
+  while (WiFi.status() != WL_CONNECTED && tentativas < 20) {
+    delay(500);
+    tft.drawString(".", 5 + tentativas * 5, 45);
+    tentativas++;
+  }
+
+  if (WiFi.status() == WL_CONNECTED) {
+    tft.drawString("WiFi OK", 5, 65);
+    Serial.println("WiFi conectado");
+  } else {
+    tft.drawString("WiFi FAIL", 5, 65);
+    Serial.println("WiFi falhou");
+  }
+
+  delay(1000);
+}
+
+void loop() {
+  // --- Simula leitura de TAG ---
+  tft.fillRect(0, 90, 240, 20, TFT_BLACK);
+  tft.drawString("Lendo TAG...", 5, 90);
+  Serial.println("Lendo TAG...");
+
+  delay(1500);  // Tempo de "leitura"
+
+  // --- TAG simulada ---
+  tagLida = "TAG" + String(random(1000, 9999));
+
+  tft.fillRect(0, 110, 240, 20, TFT_BLACK);
+  tft.drawString("TAG: " + tagLida, 5, 110);
+  Serial.println("TAG lida: " + tagLida);
+
+  delay(1000);
+
+  // --- Processa "no servidor" ---
+  processaAcesso(tagLida);
+
+  delay(5000);
+}
+
+void processaAcesso(String tag) {
+  tft.fillRect(0, 135, 240, 40, TFT_BLACK);
+  Serial.println("Processando acesso...");
+
+  // --- Simula regra de acesso ---
+  // Pode ser qualquer regra. Exemplo: se o número for par, permitido.
+  int numero = tag.substring(3).toInt();
+
+  if (numero % 2 == 0) {
+    statusAcesso = "PERMITIDO";
+  } else {
+    statusAcesso = "NEGADO";
+  }
+
+  // --- Mostra na tela ---
+  if (statusAcesso == "PERMITIDO") {
+    tft.setTextColor(TFT_GREEN, TFT_BLACK);
+  } else {
+    tft.setTextColor(TFT_RED, TFT_BLACK);
+  }
+
+  tft.drawString("Acesso: " + statusAcesso, 5, 135);
+  Serial.println("Acesso: " + statusAcesso);
+
+  tft.setTextColor(TFT_WHITE, TFT_BLACK);
+}
