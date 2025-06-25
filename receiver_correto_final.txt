@@ -1,0 +1,170 @@
+#include <TFT_eSPI.h>   // Biblioteca para o display TFT
+#include <WiFi.h>       // Biblioteca para Wi-Fi
+#include <WebServer.h>  // Biblioteca WebServer para criar um servidor HTTP
+#include <HTTPClient.h> // Biblioteca HTTPClient para chamadas de API
+#include <FS.h>
+
+using namespace fs;
+
+// --- RECEIVERRRRR
+
+const char* ssid = "";       // <<--- Substitua pelo seu SSID Wi-Fi
+const char* password = ""; // <<--- Substitua pela sua senha Wi-Fi
+
+// --- Configuração da API Externa ---
+// <<--- IMPORTANTE: Substitua pelo seu host e caminho da API externa
+const char* externalApiHost = "example.com"; // Ex: "api.yoursite.com"
+const int externalApiPort = 443;
+const char* externalApiPath = "/check_access"; // Ex: "/access" ou "/verify"
+
+// --- Configuração do WebServer (para receber a TAG do sender) ---
+// O receptor (este ESP32) atuará como um servidor HTTP na porta 443
+WebServer server(80);
+
+// --- Inicialização do Display ---
+TFT_eSPI tft = TFT_eSPI(); // Cria um objeto TFT_eSPI
+
+// Declarações de função
+String callExternalApiForAccess(String tag); // Função para chamar a API externa
+void handleTagRequest(); // Handler para as requisições HTTP do sender
+
+void setup() {
+  Serial.begin(115200); // Inicializa a comunicação serial para depuração
+
+  // --- Inicializa o Display ---
+  tft.init();         // Inicializa o display TFT
+  tft.setRotation(1); // Define a rotação do display (ajuste conforme a orientação)
+  tft.fillScreen(TFT_BLACK); // Preenche a tela com preto
+  tft.setTextColor(TFT_WHITE, TFT_BLACK); // Define a cor do texto para branco com fundo preto
+  tft.setTextFont(2); // Define a fonte (fonte 2 é uma fonte de 16x16 pixels)
+
+  tft.drawString("Controle de Acesso", 5, 5); // Exibe um título
+  tft.drawString("Iniciando WiFi...", 5, 25); // Indica o início da conexão WiFi
+
+  // --- Conecta ao Wi-Fi ---
+  Serial.print("Conectando a WiFi: ");
+  Serial.println(ssid);
+  WiFi.begin(ssid, password); // Inicia a conexão Wi-Fi com as credenciais fornecidas
+  // Espera até que o Wi-Fi se conecte, imprimindo pontos para indicar o progresso
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+    tft.print("."); // Isso anexará pontos na mesma linha no TFT
+  }
+  tft.println("\nWiFi conectado!"); // Nova linha para a mensagem de conectado no TFT
+  Serial.println("\nWiFi conectado!");
+  Serial.print("Endereço IP: ");
+  Serial.println(WiFi.localIP()); // Imprime o endereço IP atribuído
+  tft.drawString("IP: " + WiFi.localIP().toString(), 5, 45); // Exibe o IP no TFT
+
+  // --- Configura o WebServer ---
+  // Define o handler para a URL "/tag" quando uma requisição GET for recebida
+  // O sender enviará a TAG para esta URL
+  server.on("/tag", HTTP_GET, handleTagRequest);
+  server.begin(); // Inicia o servidor web
+  Serial.println("Servidor HTTP iniciado");
+  tft.drawString("Servidor HTTP ON", 5, 65);
+
+  Serial.println("Receptor pronto para receber TAGs via Wi-Fi, consultar API externa e responder...");
+  tft.drawString("Aguardando TAGs...", 5, 85); // Indica prontidão no TFT
+}
+
+void loop() {
+  // O servidor WebServer precisa ser manipulado no loop principal para processar as requisições
+  server.handleClient(); // Permite que o servidor processe as requisições HTTP de clientes
+  delay(10); // Pequeno atraso para evitar busy-waiting
+}
+
+// Handler para as requisições HTTP recebidas do sender
+void handleTagRequest() {
+  String incomingTag = "";
+  // Verifica se a requisição contém o argumento 'tag'
+  if (server.hasArg("tag")) {
+    incomingTag = server.arg("tag"); // Obtém o valor do argumento 'tag'
+  } else {
+    // Se a TAG não for fornecida, envia uma resposta de erro
+    server.send(400, "text/plain", "Erro: TAG não fornecida.");
+    Serial.println("Erro: TAG não fornecida na requisição.");
+    tft.fillRect(0, 5, 240, 60, TFT_BLACK);
+    tft.setTextColor(TFT_RED, TFT_BLACK);
+    tft.drawString("Erro: TAG vazia", 5, 5);
+    tft.setTextColor(TFT_WHITE, TFT_BLACK);
+    return;
+  }
+
+  // Limpa as áreas de exibição para novas informações
+  tft.fillRect(0, 5, 240, 60, TFT_BLACK); // Limpa o status anterior
+  tft.drawString("TAG Recebida:", 5, 5);
+  tft.drawString(incomingTag, 5, 25); // Exibe a TAG recebida no TFT
+
+  Serial.print("TAG Wi-Fi recebida: ");
+  Serial.println(incomingTag);
+
+  // --- Chama a API externa com a TAG recebida ---
+  tft.fillRect(0, 65, 240, 20, TFT_BLACK); // Limpa a área "Consultando API..."
+  tft.drawString("Consultando API Externa...", 5, 65);
+  Serial.println("Consultando API Externa para TAG: " + incomingTag);
+  String apiResponse = callExternalApiForAccess(incomingTag); // Chama a função da API externa
+
+  // --- Exibe o status de Acesso com cor apropriada no TFT ---
+  if (apiResponse == "PERMITIDO") {
+    tft.setTextColor(TFT_GREEN, TFT_BLACK); // Verde para acesso permitido
+  } else if (apiResponse == "NEGADO") {
+    tft.setTextColor(TFT_RED, TFT_BLACK);   // Vermelho para acesso negado
+  } else { // Lida com API_ERROR ou respostas inesperadas
+    tft.setTextColor(TFT_YELLOW, TFT_BLACK); // Amarelo para erros/timeouts
+    apiResponse = "ERRO/TIMEOUT"; // Mensagem mais amigável para exibição
+  }
+  tft.fillRect(0, 90, 240, 40, TFT_BLACK); // Limpa a área de status de acesso anterior
+  tft.drawString("Acesso:", 5, 90);
+  tft.drawString(apiResponse, 5, 110); // Exibe o status de acesso final no TFT
+  Serial.println("Status de Acesso Final: " + apiResponse);
+
+  tft.setTextColor(TFT_WHITE, TFT_BLACK); // Redefine a cor do texto para o próximo ciclo
+
+  // Envia a resposta da API de volta ao sender via HTTP
+  server.send(200, "text/plain", apiResponse);
+}
+
+// Função para chamar a API externa com a TAG fornecida
+String callExternalApiForAccess(String tag) {
+  HTTPClient http; // Cria um objeto HTTPClient
+  // Constrói a URL completa para a requisição da API, incluindo a TAG como um parâmetro de consulta
+  String fullUrl = String("http://") + externalApiHost + externalApiPath + "?tag=" + tag;
+
+  Serial.print("Fazendo requisição API externa: ");
+  Serial.println(fullUrl);
+
+  http.begin(fullUrl); // Especifica a URL para a requisição HTTP
+
+  int httpCode = http.GET(); // Envia a requisição HTTP GET e obtém o código de resposta
+  String payload = "";       // String para armazenar o payload da resposta da API
+
+  if (httpCode > 0) { // Verifica se a requisição HTTP foi bem-sucedida (código > 0)
+    Serial.printf("[HTTP] GET... código: %d\n", httpCode);
+    if (httpCode == HTTP_CODE_OK) { // HTTP_CODE_OK == 200, indica sucesso
+      payload = http.getString(); // Obtém o payload da resposta como uma String
+      Serial.print("Resposta API Externa: ");
+      Serial.println(payload);
+
+      // --- Processa a Resposta da API ---
+      // Para este exemplo, assumimos que a API retorna "PERMITIDO" ou "NEGADO" diretamente.
+      // Em um cenário real, você pode precisar analisar JSON (por exemplo, usando a biblioteca ArduinoJson)
+      // para extrair o status de acesso ou outras informações.
+      if (payload.indexOf("PERMITIDO") != -1) {
+        return "PERMITIDO"; // Retorna "PERMITIDO" se encontrado no payload
+      } else if (payload.indexOf("NEGADO") != -1) {
+        return "NEGADO";    // Retorna "NEGADO" se encontrado no payload
+      } else {
+        return "INDETERMINADO"; // Retorna "INDETERMINADO" para respostas de API inesperadas
+      }
+    }
+  } else {
+    // Se a requisição HTTP falhou, imprime o erro
+    Serial.printf("[HTTP] GET... falhou, erro: %s\n", http.errorToString(httpCode).c_str());
+    return "API_ERROR"; // Indica que a própria chamada da API falhou
+  }
+
+  http.end(); // Fecha a conexão HTTP e libera os recursos
+  return "API_UNKNOWN"; // Esta linha geralmente não deve ser alcançada se as condições anteriores forem tratadas
+}
