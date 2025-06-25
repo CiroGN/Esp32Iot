@@ -1,0 +1,132 @@
+#include <WiFi.h>       // Wi-Fi library
+#include <HTTPClient.h> // HTTP client library
+#include <SPI.h>        // SPI library (needed for MFRC522)
+#include <MFRC522.h>    // MFRC522 RFID 
+
+// --- SENDERRRRRRRRRRRRR ---
+
+const char* ssid = "YOUR_WIFI_SSID";       // <<--- Substitua pelo seu SSID Wi-Fi
+const char* password = "YOUR_WIFI_PASSWORD"; // <<--- Substitua pela sua senha Wi-Fi
+
+// IMPORTANTE: Substitua pelo endereço IP do seu ESP32 que está rodando o ESP32_WiFi_Receiver_With_Display.ino
+// Você pode encontrar o IP no Serial Monitor do Receptor após ele se conectar ao WiFi.
+const char* receiverIp = "192.168.1.100"; // <<--- Exemplo: "192.168.1.100" (USE O IP REAL DO SEU RECEIVER!)
+const int receiverPort = 80;            // A porta padrão do servidor web no Receiver
+
+// --- RFID-RC522 Pin Definition ---
+// Definir os pinos para o módulo RFID-RC522
+// O pino RST/Reset geralmente é um pino digital do ESP32
+// O pino SDA/SS (Chip Select) é geralmente um pino digital do ESP32.
+// Para ESP32s, os pinos SPI padrão são:
+// MISO: GPIO19
+// MOSI: GPIO23
+// SCK:  GPIO18
+// SS:   GPIO5 (este é o padrão para MFRC522, mas pode ser outro pino configurado)
+// RST:  GPIO27 (este é um pino comum, mas você pode usar outro)
+
+#define RST_PIN   27          // Pino de reset do RC522
+#define SS_PIN    5           // Pino SDA (CS) do RC522 (Chip Select)
+
+// Cria uma instância do objeto MFRC522
+MFRC522 rfid(SS_PIN, RST_PIN); // Passa os pinos SS e RST para o construtor
+
+// --- Global Variables ---
+String tagToSend = "";        // Variável para armazenar a TAG lida a ser enviada
+String receivedResponse = ""; // Variável para armazenar a resposta do receiver
+
+// Function declaration
+void sendTagToReceiver(String tag); // Função para enviar a TAG e aguardar resposta
+
+void setup() {
+  Serial.begin(115200); // Inicializa a comunicação serial para depuração
+
+  Serial.println("\n--- Sender RFID Wi-Fi Iniciando ---");
+
+  // --- Conecta ao Wi-Fi ---
+  Serial.print("Conectando a WiFi: ");
+  Serial.println(ssid);
+  WiFi.begin(ssid, password); // Inicia a conexão Wi-Fi com as credenciais fornecidas
+  // Espera até que o Wi-Fi se conecte, imprimindo pontos para indicar o progresso
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("\nWiFi conectado!");
+  Serial.print("Endereço IP: ");
+  Serial.println(WiFi.localIP()); // Imprime o endereço IP atribuído
+
+  // --- Inicializa o Módulo RFID ---
+  SPI.begin();        // Inicia a interface SPI
+  rfid.PCD_Init();    // Inicializa o Módulo MFRC522
+  // rfid.PCD_DumpVersionToSerial(); // Opcional: Descomente para ver a versão do firmware do MFRC522
+
+  Serial.println("Sender pronto para ler RFID e enviar via Wi-Fi...");
+  Serial.println("Aproxime um cartão/tag RFID...");
+}
+
+void loop() {
+  // --- Lógica de Leitura do Módulo RFID-RC522 Real ---
+  // Verifica se há um novo cartão presente
+  if (rfid.PICC_IsNewCardPresent()) {
+    // Verifica se a TAG pode ser lida (anti-colisão e leitura do UID)
+    if (rfid.PICC_ReadCardSerial()) {
+      tagToSend = ""; // Limpa a string da TAG
+
+      Serial.print("TAG Real Lida: ");
+      // Converte o UID do cartão (byte array) para uma string hexadecimal
+      for (byte i = 0; i < rfid.uid.size; i++) {
+        // Formata os bytes para sempre terem dois dígitos (ex: 0F ao invés de F)
+        if (rfid.uid.uidByte[i] < 0x10) {
+          tagToSend += "0";
+        }
+        tagToSend += String(rfid.uid.uidByte[i], HEX);
+      }
+      tagToSend.toUpperCase(); // Converte para maiúsculas (opcional, para consistência)
+      Serial.println(tagToSend);
+
+      // --- Envia a TAG para o Receiver via Wi-Fi ---
+      sendTagToReceiver(tagToSend);
+
+      // Coloca o cartão em "sono" para que ele possa ser lido novamente após ser removido e reaproximado
+      rfid.PICC_HaltA();
+      // Encerra a criptografia na sessão atual para facilitar a próxima leitura
+      rfid.PCD_StopCrypto1();
+
+      delay(3000); // Pequeno atraso para evitar leituras múltiplas e rápidas do mesmo cartão
+    }
+  }
+
+  delay(100); // Pequeno atraso no loop para estabilidade
+}
+
+// Função para enviar a TAG para o Receiver via HTTP e aguardar uma resposta
+void sendTagToReceiver(String tag) {
+  HTTPClient http; // Cria um objeto HTTPClient
+  // Constrói a URL completa para a requisição HTTP para o Receiver
+  // O Receiver espera a TAG como um parâmetro de consulta GET em "/tag"
+  String fullUrl = String("http://") + receiverIp + ":" + receiverPort + "/tag?tag=" + tag;
+
+  Serial.print("Enviando TAG via Wi-Fi para o Receiver: ");
+  Serial.println(fullUrl);
+
+  http.begin(fullUrl); // Especifica a URL para a requisição HTTP
+
+  int httpCode = http.GET(); // Envia a requisição HTTP GET e obtém o código de resposta
+  receivedResponse = "";     // Limpa a resposta anterior
+
+  if (httpCode > 0) { // Verifica se a requisição HTTP foi bem-sucedida (código > 0)
+    Serial.printf("[HTTP] GET... código: %d\n", httpCode);
+    if (httpCode == HTTP_CODE_OK) { // HTTP_CODE_OK == 200, indica sucesso
+      receivedResponse = http.getString(); // Obtém o payload da resposta como uma String
+      Serial.print("Resposta recebida do Receiver: ");
+      Serial.println(receivedResponse);
+    }
+  } else {
+    // Se a requisição HTTP falhou, imprime o erro
+    Serial.printf("[HTTP] GET... falhou, erro: %s\n", http.errorToString(httpCode).c_str());
+    receivedResponse = "ERRO_ENVIO_WIFI"; // Define o status para erro de envio
+  }
+  
+  http.end(); // Fecha a conexão HTTP e libera os recursos
+  Serial.println("Status Final: " + receivedResponse);
+}
