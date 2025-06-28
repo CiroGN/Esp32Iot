@@ -1,4 +1,5 @@
 from flask import Flask, jsonify, request
+from flask_cors import CORS
 import hashlib
 import time
 import redis
@@ -7,6 +8,7 @@ import json
 from bd import DatabaseConnection
 
 app = Flask(__name__)
+CORS(app)
 
 @app.route('/get_token', methods=['GET'])
 def get_token():
@@ -35,6 +37,7 @@ def get_token():
 def get_notifications():
     redis_client = redis.Redis(host='localhost', port=6379, decode_responses=True)
     notifications = redis_client.lrange("notifications", 0, -1)
+    redis_client.delete("notifications")
     print(notifications)
     notifications_json = [json.loads(item) for item in notifications]
     data = {
@@ -70,4 +73,4 @@ def seen_token():
         database.close()
         return jsonify(data)
 
-app.run(debug=True)
+app.run(host="0.0.0.0",debug=True)
