@@ -1,0 +1,23 @@
+get_token (get)
+	criar um token
+	registrar no banco (sqlite)
+	retornar um JSON:
+	{
+		status: 201 | 409,
+		?error_message: "",
+		token_key: "HHHHHH"
+	}
+
+verify_token (post)
+	recebe um JSON:
+	JSON exemplo:
+	{
+		token_key: "HHHHHH"
+	}
+	verificar no banco (sqlite) se há esse token.
+	registrar presença no baco
+	retornar um JSON:
+	{
+		status: 200 | 404,
+		?error_message: "",
+	}
